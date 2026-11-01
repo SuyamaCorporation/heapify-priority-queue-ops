@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ヒープ 優先度キュー 操作 デモ</title>
+<script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-950 text-gray-100 min-h-screen p-4">
+<div class="max-w-5xl mx-auto">
+  <h1 class="text-2xl font-bold text-center mb-2 text-cyan-400">ヒープ 優先度キュー 操作 デモ</h1>
+  <p class="text-center text-gray-400 text-sm mb-4">挿入・削除・ヒープ化のアニメーション可視化</p>
+
+  <div class="flex flex-col lg:flex-row gap-4">
+    <div class="flex-1">
+      <canvas id="canvas" width="520" height="340" class="bg-gray-900 rounded-lg border border-gray-700 w-full" aria-label="ヒープツリー"></canvas>
+      <div class="mt-2 bg-gray-900 rounded-lg p-3 border border-gray-700">
+        <h2 class="text-sm font-semibold text-cyan-300 mb-2">配列表現</h2>
+        <div id="arrayView" class="flex flex-wrap gap-1"></div>
+      </div>
+    </div>
+
+    <div class="lg:w-72 flex flex-col gap-3">
+      <div class="bg-gray-900 rounded-lg p-3 border border-gray-700">
+        <div class="flex gap-2 mb-2">
+          <button id="toggleHeap" class="flex-1 bg-cyan-700 hover:bg-cyan-600 rounded px-3 py-2 text-sm font-medium" aria-label="最小/最大切替">最小ヒープ</button>
+        </div>
+        <div class="flex gap-2 mb-2">
+          <input id="insertVal" type="number" placeholder="値を入力" class="flex-1 bg-gray-800 border border-gray-600 rounded px-2 py-1 text-sm" aria-label="挿入する値">
+          <button id="insertBtn" class="bg-green-700 hover:bg-green-600 rounded px-3 py-2 text-sm" aria-label="挿入">挿入</button>
+        </div>
+        <div class="flex gap-2 mb-2">
+          <button id="extractBtn" class="flex-1 bg-red-700 hover:bg-red-600 rounded px-3 py-2 text-sm" aria-label="根を取り出す">根を取出し</button>
+          <button id="clearBtn" class="flex-1 bg-gray-700 hover:bg-gray-600 rounded px-3 py-2 text-sm" aria-label="クリア">クリア</button>
+        </div>
+        <div class="flex gap-2">
+          <input id="buildInput" type="text" placeholder="例: 5,3,8,1,9" class="flex-1 bg-gray-800 border border-gray-600 rounded px-2 py-1 text-sm" aria-label="ヒープ構築用入力">
+          <button id="buildBtn" class="bg-blue-700 hover:bg-blue-600 rounded px-3 py-2 text-sm" aria-label="ヒープ構築">構築</button>
+        </div>
+      </div>
+
+      <div class="bg-gray-900 rounded-lg p-3 border border-gray-700">
+        <h2 class="font-semibold text-cyan-300 mb-1">操作ログ</h2>
+        <div id="log" class="text-xs space-y-1 max-h-52 overflow-y-auto font-mono"></div>
+      </div>
+
+      <div class="bg-gray-900 rounded-lg p-3 border border-gray-700">
+        <h2 class="font-semibold text-cyan-300 mb-1">ヒープ性質</h2>
+        <div id="heapStats" class="text-xs space-y-1"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+let heap = [3,8,5,12,15,9,7,20,14,10];
+let isMin = true;
+let highlight = {nodes:[], color:'#fbbf24'};
+let animQueue = [];
+let animTimer = null;
+
+function cmp(a,b) { return isMin ? a<b : a>b; }
+function swap(i,j) { [heap[i],heap[j]]=[heap[j],heap[i]]; }
+function parent(i){return Math.floor((i-1)/2);}
+function left(i){return 2*i+1;}
+function right(i){return 2*i+2;}
+
+function bubbleUp(i) {
+  const log=[];
+  while(i>0&&cmp(heap[i],heap[parent(i)])){
+    log.push({action:`${heap[parent(i)]}↔${heap[i]} (${i}↑${parent(i)})`,hl:[i,parent(i)]});
+    swap(i,parent(i)); i=parent(i);
+  }
+  return log;
+}
+
+function heapifyDown(i) {
+  const log=[];
+  const n=heap.length;
+  while(true){
+    let best=i,l=left(i),r=right(i);
+    if(l<n&&cmp(heap[l],heap[best]))best=l;
+    if(r<n&&cmp(heap[r],heap[best]))best=r;
+    if(best===i)break;
+    log.push({action:`${heap[i]}↔${heap[best]} (${i}↓${best})`,hl:[i,best]});
+    swap(i,best); i=best;
+  }
+  return log;
+}
+
+function buildHeap(arr) {
+  heap=[...arr];
+  const log=[];
+  for(let i=Math.floor(heap.length/2)-1;i>=0;i--){
+    const sub=heapifyDown(i);
+    log.push(...sub.map(e=>({...e,action:'構築: '+e.action})));
+  }
+  return log;
+}
+
+function addLog(msg,color='#9ca3af'){
+  const el=document.getElementById('log');
+  const div=document.createElement('div');
+  div.style.color=color;
+  div.textContent=msg;
+  el.prepend(div);
+  while(el.children.length>30)el.lastChild.remove();
+}
+
+function runAnim(steps, finalMsg, finalColor) {
+  if(animTimer)clearInterval(animTimer);
+  let i=0;
+  animTimer=setInterval(()=>{
+    if(i<steps.length){
+      highlight={nodes:steps[i].hl,color:'#fbbf24'};
+      addLog(steps[i].action,'#fbbf24');
+      draw();
+      i++;
+    } else {
+      highlight={nodes:[],color:'#fbbf24'};
+      if(finalMsg)addLog(finalMsg,finalColor||'#4ade80');
+      draw(); updateStats();
+      clearInterval(animTimer); animTimer=null;
+    }
+  },400);
+}
+
+function insert(val) {
+  heap.push(val);
+  addLog(`挿入: ${val}`,'#67e8f9');
+  const steps=bubbleUp(heap.length-1);
+  runAnim(steps,`挿入完了 ${val}→位置確定`,'#4ade80');
+  updateArrayView();
+}
+
+function extract() {
+  if(!heap.length)return;
+  const top=heap[0];
+  heap[0]=heap[heap.length-1]; heap.pop();
+  addLog(`取出し: ${top}`,'#f87171');
+  const steps=heapifyDown(0);
+  runAnim(steps,`取出し完了 最${isMin?'小':'大'}値: ${top}`,'#f87171');
+  updateArrayView();
+}
+
+function draw() {
+  const canvas=document.getElementById('canvas');
+  const ctx=canvas.getContext('2d');
+  const W=canvas.width,H=canvas.height;
+  ctx.clearRect(0,0,W,H);
+  if(!heap.length){ctx.fillStyle='#6b7280';ctx.font='16px sans-serif';ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText('ヒープが空です',W/2,H/2);return;}
+
+  const nodePos=[];
+  const levels=Math.ceil(Math.log2(heap.length+1));
+  function calcPos(i,level,lo,hi){
+    if(i>=heap.length)return;
+    const x=(lo+hi)/2,y=40+level*70;
+    nodePos[i]=[x*W,y];
+    calcPos(left(i),level+1,lo,(lo+hi)/2);
+    calcPos(right(i),level+1,(lo+hi)/2,hi);
+  }
+  calcPos(0,0,0,1);
+
+  // edges
+  for(let i=0;i<heap.length;i++){
+    const l=left(i),r=right(i);
+    if(l<heap.length&&nodePos[i]&&nodePos[l]){
+      ctx.beginPath();ctx.moveTo(...nodePos[i]);ctx.lineTo(...nodePos[l]);
+      ctx.strokeStyle='#4b5563';ctx.lineWidth=1.5;ctx.stroke();
+    }
+    if(r<heap.length&&nodePos[i]&&nodePos[r]){
+      ctx.beginPath();ctx.moveTo(...nodePos[i]);ctx.lineTo(...nodePos[r]);
+      ctx.strokeStyle='#4b5563';ctx.lineWidth=1.5;ctx.stroke();
+    }
+  }
+
+  // nodes
+  for(let i=0;i<heap.length;i++){
+    if(!nodePos[i])continue;
+    const [x,y]=nodePos[i],r=Math.min(22,W/(Math.pow(2,Math.floor(Math.log2(i+1)))+1)/2.5);
+    const isHL=highlight.nodes.includes(i);
+    ctx.beginPath();ctx.arc(x,y,r,0,Math.PI*2);
+    ctx.fillStyle=i===0?(isMin?'#1d4ed8':'#7c2d12'):isHL?'#78350f':'#1e3a5f';
+    ctx.fill();
+    ctx.strokeStyle=isHL?'#fbbf24':i===0?'#60a5fa':'#4b83c8';
+    ctx.lineWidth=isHL?2.5:1.5;ctx.stroke();
+    ctx.fillStyle='#f9fafb';ctx.font=`bold ${Math.min(13,r)}px sans-serif`;
+    ctx.textAlign='center';ctx.textBaseline='middle';
+    ctx.fillText(heap[i],x,y);
+  }
+}
+
+function updateArrayView() {
+  document.getElementById('arrayView').innerHTML=heap.map((v,i)=>
+    `<div class="flex flex-col items-center">
+      <div class="bg-gray-800 border border-gray-600 rounded px-2 py-1 text-xs font-mono min-w-8 text-center ${i===0?'border-cyan-500 text-cyan-300':''}">${v}</div>
+      <div class="text-gray-600 text-xs">${i}</div>
+    </div>`
+  ).join('');
+}
+
+function updateStats() {
+  const n=heap.length;
+  document.getElementById('heapStats').innerHTML=`
+    <div class="flex justify-between"><span class="text-gray-400">要素数</span><span class="text-cyan-300">${n}</span></div>
+    <div class="flex justify-between"><span class="text-gray-400">高さ</span><span class="text-cyan-300">${n?Math.floor(Math.log2(n)):0}</span></div>
+    <div class="flex justify-between"><span class="text-gray-400">${isMin?'最小':'最大'}値 (根)</span><span class="text-cyan-300">${n?heap[0]:'-'}</span></div>
+    <div class="flex justify-between"><span class="text-gray-400">種類</span><span class="text-cyan-300">${isMin?'最小ヒープ':'最大ヒープ'}</span></div>
+  `;
+}
+
+document.getElementById('insertBtn').addEventListener('click',()=>{
+  const v=parseInt(document.getElementById('insertVal').value);
+  if(isNaN(v)||heap.length>=31)return;
+  insert(v); document.getElementById('insertVal').value='';
+});
+document.getElementById('insertVal').addEventListener('keydown',e=>{if(e.key==='Enter')document.getElementById('insertBtn').click();});
+document.getElementById('extractBtn').addEventListener('click',extract);
+document.getElementById('clearBtn').addEventListener('click',()=>{heap=[];addLog('クリア','#9ca3af');draw();updateArrayView();updateStats();});
+document.getElementById('buildBtn').addEventListener('click',()=>{
+  const vals=document.getElementById('buildInput').value.split(',').map(s=>parseInt(s.trim())).filter(v=>!isNaN(v));
+  if(!vals.length)return;
+  const steps=buildHeap(vals);
+  addLog(`ヒープ構築: [${vals.join(',')}]`,'#67e8f9');
+  runAnim(steps,'構築完了','#4ade80');
+  updateArrayView();
+  document.getElementById('buildInput').value='';
+});
+document.getElementById('toggleHeap').addEventListener('click',()=>{
+  isMin=!isMin;
+  document.getElementById('toggleHeap').textContent=isMin?'最小ヒープ':'最大ヒープ';
+  if(heap.length){const steps=buildHeap(heap);runAnim(steps,`${isMin?'最小':'最大'}ヒープに再構築`,'#67e8f9');updateArrayView();}
+});
+
+draw(); updateArrayView(); updateStats();
+</script>
+</body>
+</html>
